@@ -10,11 +10,10 @@ var escapeshell = function(cmd) {
 ** {
 **   host: 'domain.com', // required
 **   username: 'Test', // required
-**   password: 'Test', // required
-**   protocol: 'sftp', // optional, values : 'ftp', 'sftp', 'ftps', ... default: 'ftp'
-**   // protocol is added on beginning of host, ex : sftp://domain.com in this case
+**   password: 'Test', // optional
 **   port: '28', // optional
-**   // port is added at the end of the host, ex : sftp://domain.com:28 in this case
+**   key: '/path/to/private/key', // optional
+**   sshOptions: { ... } // map from SSH options to option values
 ** }
 **
 ** Usage :
@@ -30,16 +29,15 @@ FTP.prototype.initialize = function (options) {
 	var defaults = {
 		host: '',
 		username: '',
-		password: ''
+		password: '',
+		key: ''
 	};
-	var opts = _.pick(_.extend(defaults, options), 'host', 'username', 'password', 'port');
+	var opts = _.pick(_.extend(defaults, options), 'host', 'username', 'password', 'port', 'key', 'sshOptions');
 	if (!opts.host) throw new Error('You need to set a host.');
 	if (!opts.username) throw new Error('You need to set an username.');
-	if (!opts.password) throw new Error('You need to set a password.');
-	if (typeof options.protocol === 'string' && options.protocol && opts.host.indexOf(options.protocol + '://') !== 0)
-		opts.host = options.protocol + '://' + options.host;
-  	if (opts.port)
-    		opts.host = opts.host + ':' + opts.port;
+	if (options.protocol && options.protocol !== 'sftp') throw new Error('Only sftp protocol is supported.');
+	if (!opts.sshOptions) opts.sshOptions = {};
+	if (opts.key) opts.sshOptions.IdentityFile = opts.key;
 	this.options = opts;
 };
 
@@ -52,29 +50,63 @@ FTP.prototype.exec = function (cmds, callback) {
 		callback = cmds;
 	if (!callback)
 		throw new Error('callback is missing to exec() function.')
-	var cmd = '';
-	cmd += 'open -u "'+ escapeshell(this.options.username) + '","' + escapeshell(this.options.password) + '" "' + this.options.host + '";';
-	cmd += this.cmds.join(';');
-	this.cmds = [];
 
-	var lftp = spawn('lftp', ['-c', cmd]);
+	var shellCmd = 'sftp';
+	var shellOpts = [];
+	if (this.options.password) {
+		shellCmd = 'sshpass';
+		shellOpts.push('-p', this.options.password, 'sftp');
+	}
+	for (var sshOptKey in this.options.sshOptions) {
+		shellOpts.push('-o' + sshOptKey + '=' + this.options.sshOptions[sshOptKey]);
+	}
+	if (this.options.port) shellOpts.push('-P', '' + this.options.port);
+	shellOpts.push('' + this.options.username + '@' + this.options.host);
+
+	cmds = this.cmds;
+	this.cmds = [];
+	cmds.push('exit');
+	var cmdString = cmds.join('\n') + '\n';
+
+	var sftp = spawn(shellCmd, shellOpts);
+
 	var data = "";
 	var error = "";
-	lftp.stdout.on('data', function (res) {
+	sftp.stdout.on('data', function (res) {
 		data += res;
 	});
-	lftp.stderr.on('data', function (res) {
+	sftp.stderr.on('data', function (res) {
 		error += res;
 	});
-	lftp.on('error', function ( err ) {
-		if (callback)
-			callback(err, { error: error || null, data: data });
-		callback = null; // Make sure callback is only called once, whether 'exit' event is triggered or not.
+	function finished(err) {
+		error = error.split('\n').filter(function(line) {
+			if (/^Connected to /.test(line)) return false;
+			return true;
+		}).join('\n');
+		data = data.split('\n').filter(function(line) {
+			if (/^sftp> /.test(line)) return false;
+			return true;
+		}).join('\n');
+		if (callback) {
+			if (err) {
+				callback(err, { error: error || null, data: data });
+			} else if (error) {
+				callback(null, { error: error, data: data });
+			} else {
+				callback(null, { error: null, data: data });
+			}
+			callback = null;
+		}
+	}
+	sftp.on('error', finished);
+	sftp.on('exit', function (code) {
+		if (code === 0) {
+			finished();
+		} else {
+			finished('Nonzero exit code: ' + code);
+		}
 	});
-	lftp.on('exit', function (code) {
-		if (callback)
-			callback(null, { error: error || null, data: data });
-	});
+	sftp.stdin.write(cmdString, 'utf8');
 	return this;
 };
 
@@ -87,13 +119,12 @@ FTP.prototype.raw = function (cmd) {
 FTP.prototype.ls = function () { return this.raw('ls'); };
 FTP.prototype.pwd = function () { return this.raw('pwd'); };
 FTP.prototype.cd = function (directory) { return this.raw('cd ' + escapeshell(directory)); };
-FTP.prototype.cat = function (path) { return this.raw('cat ' + escapeshell(path)); };
 FTP.prototype.put = function (localPath, remotePath) {
 	if (!localPath)
 		return this;
 	if (!remotePath)
 		return this.raw('put '+escapeshell(localPath));
-	return this.raw('put '+escapeshell(localPath)+' -o '+escapeshell(remotePath));
+	return this.raw('put '+escapeshell(localPath)+' '+escapeshell(remotePath));
 };
 FTP.prototype.addFile = FTP.prototype.put;
 FTP.prototype.get = function (remotePath, localPath) {
@@ -101,13 +132,13 @@ FTP.prototype.get = function (remotePath, localPath) {
 		return this;
 	if (!localPath)
 		return this.raw('get '+escapeshell(remotePath));
-	return this.raw('get '+escapeshell(remotePath)+' -o '+escapeshell(localPath));
+	return this.raw('get '+escapeshell(remotePath)+' '+escapeshell(localPath));
 };
 FTP.prototype.getFile = FTP.prototype.get;
 FTP.prototype.mv = function (from, to) {
 	if (!from || !to)
 		return this;
-	return this.raw('rm ' + escapeshell(from) + ' ' + escapeshell(to));
+	return this.raw('rename ' + escapeshell(from) + ' ' + escapeshell(to));
 };
 FTP.prototype.move = FTP.prototype.mv;
 FTP.prototype.rm = function () { return this.raw('rm ' + Array.prototype.slice.call(arguments).map(escapeshell).join(' ')); };

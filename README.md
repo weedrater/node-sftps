@@ -1,36 +1,36 @@
-node-ftps
+node-sftps
 =========
 
-FTP, FTPS and SFTP client for node.js, mainly a `lftp` wrapper.
+SFTP client for node.js, mainly a `sftp` wrapper.
+
+This is a fork of the `ftps` module.  This fork only supports sftp, and uses the `sftp` command instead of `lftp`.  This allows you to specify ssh-specific options such as private key file.
 
 Requirements
 ------------
 
-You need to have the executable `lftp` installed on your computer.
+You need to have the executable `sftp` installed on your computer.
+If you are using password authentication, you also need to have the `sshpass` utility installed.
 
 Installation
 -----------
 
 ``` sh
-npm install ftps
+npm install sftps
 ```
 
 Usage
 -----
 
 ``` js
-var FTPS = require('ftps');
-var ftps = new FTPS({
+var SFTPS = require('sftps');
+var sftp = new SFTPS({
   host: 'domain.com', // required
   username: 'Test', // required
   password: 'Test', // required
-  protocol: 'sftp', // optional, values : 'ftp', 'sftp', 'ftps',... default is 'ftp'
-  // protocol is added on beginning of host, ex : sftp://domain.com in this case
   port: 22 // optional
-  // port is added to the end of the host, ex: sftp://domain.com:22 in this case
 });
 // Do some amazing things
-ftps.cd('myDir').addFile(__dirname + '/test.txt').exec(console.log);
+sftp.cd('myDir').addFile(__dirname + '/test.txt').exec(console.log);
 ```
 
 Some documentation
@@ -50,14 +50,13 @@ ftps.rm(file1, file2, ...) // alias remove
 ```
 
 Execute a command on the remote server:
-<pre>ftps.raw('ls -l')</pre>
-To see all available commands -> http://lftp.yar.ru/lftp-man.html
+<pre>sftp.raw('ls -l')</pre>
 
 For information, ls, pwd, ... rm are just some alias of raw() method.
 
 Run the commands !
 ``` js
-ftps.exec(function (err, res) {
+sftp.exec(function (err, res) {
   // err will be null (to respect async convention)
   // res is an hash with { error: stderr || null, data: stdout }
 });
@@ -65,7 +64,7 @@ ftps.exec(function (err, res) {
 
 Also, take note that if a command fails it will not stop the next commands from executing, for example:
 ``` js
-ftps.cd('non-existing-dir/').affFile('./test.txt').exec(console.log);
+sftp.cd('non-existing-dir/').affFile('./test.txt').exec(console.log);
 /*
 Will add file on ~/ and give:
 {
@@ -80,5 +79,5 @@ So...be cautious because ./test.txt has been added
 Why?
 ----
 
-Just because I didn't found sftp and ftps module in node.js, it's pretty dirty to spawn `lftp` command, but sorry, it does the work for me, maybe for you too :)
+Just because I didn't found sftp and ftps module in node.js, it's pretty dirty to spawn `sftp` command, but sorry, it does the work for me, maybe for you too :)
 Ah and sorry for tests, it's a hack, so I just do some manual tests.
