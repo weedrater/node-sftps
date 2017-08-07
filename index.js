@@ -126,6 +126,13 @@ FTP.prototype.put = function (localPath, remotePath) {
 		return this.raw('put '+escapeshell(localPath));
 	return this.raw('put '+escapeshell(localPath)+' '+escapeshell(remotePath));
 };
+FTP.prototype.putDir = function (localPath, remotePath) {
+	if (!localPath)
+		return this;
+	if (!remotePath)
+		return this.raw('put -r '+escapeshell(localPath));
+	return this.raw('put -r '+escapeshell(localPath)+' '+escapeshell(remotePath));
+};
 FTP.prototype.addFile = FTP.prototype.put;
 FTP.prototype.get = function (remotePath, localPath) {
 	if (!remotePath)
